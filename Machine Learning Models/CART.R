@@ -16,7 +16,6 @@ cv.trees <- train(y = train$SalePrice,
                  tuneGrid = data.frame(.cp = seq(.00001,.0003,.000001)))
 
 ### EXTRACT RESULTS FROM THE MODEL
-# Extract results
 plot(cv.trees$results$Rsquared, cv.trees$results$cp)
 cv.trees$results$cp[cv.trees$results$Rsquared >= max(cv.trees$results$Rsquared)]
 cv.trees$bestTune
@@ -24,6 +23,10 @@ cv.results = cv.trees$results
 cv.results
 
 ### COMMAND TO BUILD THE MODEL
+### IMPORTANT PARAMETERS:
+#### MINBUCKET - MINIMAL NUMBER OF OBSERVATIONS IN EACH BRANCH
+#### CP - "complexity parameter" - NEW SPLIT MUST IMPROVE THE R2 OF THE MODEL IN THE MINIMUM INDICATED BY CP
+
 cart.model <- rpart(train$SalePrice ~., data = train, control = rpart.control(cp = 0.000296)) ### THIS CP NUMBER COMES FROM cv.results above after cross validation
 prp(cart.model, digits = 2, type = 2)
 
