@@ -57,6 +57,7 @@ print(train [outliers ,])
 # Data summary
 summary (train)
 
+#### Section below is interesting for analysis in the real world since it considers the impact of outliers in the mode. This is very common
 ### 1d - removing outliers
 train2 <- ames[setdiff(idx,outliers),]
 model1 <- lm(data = train2, SalePrice ~.)
@@ -108,6 +109,7 @@ cart <- rpart(data = train2, SalePrice ~.)
 prp(cart)
 summary(cart)
 
+### The function below is very useful for being replicated 
 ### 2b - R squared of the model
 r2_osr2 <- function(tree, trainData, testData, yvar) {
   # Like we did for logistic regression, we use the predict() function on the model, 
