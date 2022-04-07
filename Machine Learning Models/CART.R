@@ -39,3 +39,6 @@ barplot( tail( sort(CART_importance_scores), n_variables ),
          las=1,
          main = paste("CART - top", n_variables, "importance scores"),
          cex.names =.7)
+
+#### HOW TO PREDICT USING CART
+# type="response" is used by glm. The equivalent for rpart is type="prob" which is the default for classification trees. You can use type="class" if you want for testing. But when you submit, you are going to need probability predictions.
