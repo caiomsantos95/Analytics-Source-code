@@ -7,7 +7,7 @@ How to keep this organized:
 - Regular maintanance 
 
 # Still Working in progress - what needs to be added
-- Logistic Regression
+- Logistic Regression (AUC)
 - Random Forest
 - Regularization
 - XGBoost
