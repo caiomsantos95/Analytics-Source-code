@@ -13,4 +13,6 @@ How to keep this organized:
 - XGBoost
 - Natural Languange Processing
 - Clusterization
+- Recommendation
+- NLP
 - Python - loops and other useful coding knowledge
