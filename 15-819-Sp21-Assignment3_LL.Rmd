@@ -1,0 +1,586 @@
+---
+title: "15.819 - Recitation 4"
+author: ""
+date: "08/04/2021"
+output: 
+    pdf_document:
+      number_sections: true
+      fig_width: 5
+      fig_height: 4 
+---
+
+# Introduction
+
+This is the fourth recitation for 15.819 Marketing Analytics. We will now shift gears from pure predictive models to assignment models. We will discuss the following:
+
+1. Counterfactual policy learning
+2. Evaluating your policies
+
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r install}
+# set working directory
+# setwd("~/Google Drive/MIT/Teaching/15.819-Sp2021/Recitations/R04")
+
+# Installing and loading R packages/libraries
+# 1. data handling, processing, and visualization
+if (!require(tidyverse)) install.packages("tidyverse")
+library(tidyverse) # load library to access functions
+options(tibble.width = Inf, scipen = 10) # print options
+
+# penalized regression
+if (!require(glmnet)) install.packages("glmnet")
+library(glmnet)
+
+# tidy setup
+if (!require(broom)) install.packages("broom")
+library(broom)
+```
+
+
+## Preliminaries
+
+We use the cost of the mailers and the cost of the outside option provided in the competition description.
+
+```{r prelim}
+mailer.cost = .80
+outside.option.per.vote = 150
+min.effect.to.treat = mailer.cost / outside.option.per.vote
+min.effect.to.treat
+```
+
+
+## Predictive modeling vs. causal inference
+
+In the previous assignment, we were looking at predictive modeling: given some covariates X, could we predict a target variable y? The tools we learned for predictive modeling allows us to predict out of sample data points. From our regression coefficients, we can even tell which covariates were important for our predictions. However, this type of analysis does not let us reason about how some intervention might affect our outcome variable. This is a job for causal inference! One way to estimate causal effects is to run a field experiment (an A/B test) and check how much our randomized treatment influenced the outcome. Let's look at turnout to vote marketing experiment where people where randomly sent mailers asking them to vote in the upcoming elections. 
+
+```{r import}
+all.df = read_csv("turnout_train.csv")
+
+all.df$race <- ifelse(all.df$white==1, "white", 
+                                     ifelse(all.df$black==1, "black",
+                                            ifelse(all.df$hispanic==1, "hispanic",
+                                                   ifelse(all.df$other_race==1, "other",NA))))
+
+tail(all.df)
+
+```
+
+In addition to all the cutting-edge tools and techniques we are learning in the class, we cannot stress the importance of using first principles to inspect the data at hand. Look at the distributions of the variables, especially the dependent variable. Make bi-variate plots, grouped summary tables, and histograms to understand what's going on. All this should be done before any modeling. Let's start by looking at the distributions of the outcome and the target indicator. Both of these are binary variables, so we can easily tabulate them. 
+
+```{r}
+cat("Outcome \n")
+print(table(all.df$voted_2014))
+
+cat("Treatment \n")
+print(table(all.df$treat))
+
+all.df %>% 
+    group_by(treat) %>% 
+    summarize(obs = n(),
+              outcome_mean = mean(voted_2014))
+```
+
+Two things stand out - a) there is severe imbalance in treatment with more than 90% of the people treated, and b) the treatment had a small effect on the probability of voting. Let's test how strong this effect is. 
+
+```{r m1}
+m1 = lm(voted_2014 ~ treat, data = all.df)
+summary(m1)
+```
+
+Note that this is a randomized experiment. Hence the coefficient on the variable "treat" in the above regression is just the ATE.
+Given this data, our task is to come up with a new treatment assignment policy where we assign people to either treatment (receive mail) or control (don't receive mail). 
+
+
+## Heterogenous Treatment Effects
+
+In the above model, we looked at average treatment effect across all the participants. However, our goal here is to not estimate the ATE but rather assign people to be either targeted or not. Hence, we need to learn what the effect of targeting would be on different people. Another way of saying the same thing is that we need to estimate heterogeneous treatment effects, i.e., effects that vary with certain co-variates. Once we have these, we can decide which people to treat based on their co-variates. Let's start with something simple and estimate how the effect varies by state.
+
+```{r state}
+results_by_state = all.df %>%
+  group_by(state) %>%
+  do({
+    model = lm(voted_2014 ~ treat, data = .)
+    r = broom::tidy(model, conf.int = TRUE)
+    r$n = nrow(.)
+    r %>% 
+      filter(term == "treat") 
+  }) %>% 
+    ungroup() %>% 
+    arrange(estimate)
+head(results_by_state)
+```
+```{r race}
+results_by_race = all.df %>%
+  group_by(race) %>%
+  do({
+    model = lm(voted_2014 ~ treat, data = .)
+    r = broom::tidy(model, conf.int = TRUE)
+    r$n = nrow(.)
+    r %>% 
+      filter(term == "treat") 
+  }) %>% 
+    ungroup() %>% 
+    arrange(estimate)
+head(results_by_race)
+```
+
+```{r gender}
+results_by_gender = all.df %>%
+  group_by(female) %>%
+  do({
+    model = lm(voted_2014 ~ treat, data = .)
+    r = broom::tidy(model, conf.int = TRUE)
+    r$n = nrow(.)
+    r %>% 
+      filter(term == "treat") 
+  }) %>% 
+    ungroup() %>% 
+    arrange(estimate)
+head(results_by_gender)
+```
+```{r age}
+results_by_age = all.df %>%
+  group_by(i_age) %>%
+  do({
+    model = lm(voted_2014 ~ treat, data = .)
+    r = broom::tidy(model, conf.int = TRUE)
+    r$n = nrow(.)
+    r %>% 
+      filter(term == "treat") 
+  }) %>% 
+    ungroup() %>% 
+    arrange(estimate)
+results_by_age
+```
+
+Let's plot these results for clarity
+
+```{r state_plot, fig.align='center', fig.height = 8, fig.width = 10}
+results_by_state %>% 
+  mutate(state = factor(state, levels = state)) %>% 
+  ggplot(aes(x = state, y = estimate, ymin = conf.low, ymax = conf.high)) +
+    geom_hline(yintercept = 0, alpha = .3) +
+    geom_hline(yintercept = min.effect.to.treat, alpha = 0.75, color = "steelblue4") +
+    xlab("State") + ylab("Estimate") + 
+    geom_pointrange(size = 0.6) +
+    coord_flip() + 
+    theme_minimal()
+``` 
+ 
+There is a lot of variation across states, which implies that there is a lot of heterogeneity across states in effect of the treatment. Hence, we should consider using state as an input in our treatment assignment policy. 
+
+Let's update the model by incorporating a bunch of other variables and see how these estimates change. 
+
+
+```{r state_2, fig.align='center', fig.height = 8, fig.width = 10}
+results_by_state = all.df %>%
+  group_by(state) %>%
+  do({
+    model = lm(voted_2014 ~ treat + voted_2012 + 
+                 voted_2010 + i_age + married + race, data = .)
+    r = broom::tidy(model, conf.int = TRUE)
+    r$n = nrow(.)
+    r %>% 
+      filter(term == "treat") 
+  }) %>% 
+    ungroup() %>% 
+    arrange(estimate)
+
+results_by_state %>% 
+  mutate(state = factor(state, levels = state)) %>% 
+  ggplot(aes(x = state, y = estimate, ymin = conf.low, ymax = conf.high)) +
+    geom_hline(yintercept = 0, alpha = .3) +
+    geom_hline(yintercept = min.effect.to.treat, alpha = 0.75, color = "steelblue4") +
+    xlab("State") + ylab("Estimate") + 
+    geom_pointrange(size = 0.6) +
+    coord_flip() + 
+    theme_minimal()
+```
+
+The effect across states is still strong but the intervals are a bit smaller. We are gaining precision by including more co-variates. 
+
+
+## Treatment effect for each user
+
+Now that we have some background, let's work on the actual problem. We want to do two things:
+
+1. Estimate the treatment effect for each user
+2. Assign people to treatment if their **estimated** treatment effect is above a certain cut-off
+
+To do this, we will estimate two models. The first model will be for people under current treatment and the second model for people under current control. Then we will score both the models for *everyone* on the validation/test data and take the difference in predictions. This difference is the treatment effect for each person. Finally, we will assign people to "new" treatment and control based on this difference. Let's get to it.  
+
+
+```{r split}
+# ==========================================
+# split train-val
+# ==========================================
+# create indicator variable for training/validation
+set.seed(134) # set seed for reproducibility
+all.df$train_split = sample(c("train", "val"), size = nrow(all.df), 
+                            prob = c(0.85, 0.15), replace = TRUE)
+table(all.df$train_split)
+
+# Estimate propensity of treatment by state (explained later)
+all.df = all.df %>% 
+    group_by(state) %>% 
+    mutate(p_treatment = mean(treat)) %>% 
+    ungroup()
+
+# split training and validation data
+train = all.df %>% 
+  filter(train_split == "train")
+print(dim(train))
+
+val = all.df %>% 
+  filter(train_split == "val")
+print(dim(val))
+```
+
+```{r test}
+# import test data
+test = read_csv("C:/Users/lisaa/Documents/Spring 2022/Marketing Analytics/turnout_to_assign.csv")
+
+test$race <- ifelse(test$white==1, "white", 
+                                     ifelse(test$black==1, "black",
+                                            ifelse(test$hispanic==1, "hispanic",
+                                                   ifelse(test$other_race==1, "other",NA))))
+print(dim(test))
+
+```
+
+### Feature engineering
+
+Before we build the models, we will need to create features. Here we use a few features to illustrate the concept. You should experiment with more features, including interactions.
+
+```{r feat}
+
+# ==========================================
+# create feature matrices
+# ==========================================
+
+# convert state to factor
+train$state = factor(train$state)
+val$state = factor(val$state, levels = levels(train$state))
+test$state = factor(test$state, levels = levels(train$state))
+
+# convert race to factor
+train$race = factor(train$race)
+val$race = factor(val$race, levels = levels(train$race))
+test$race = factor(test$race, levels = levels(train$race))
+
+# model matrix for training data
+mm.train = sparse.model.matrix(
+   ~ 0 + (voted_2011 + voted_2013 + race) * state +      voted_2011:voted_2013,
+  data = train
+)
+
+#   ~ 0 + (voted_2010 + voted_2011 + voted_2012 +  married) * state + 
+#     voted_2010:voted_2012,
+# data = train
+#)
+print(dim(mm.train))
+
+# model matrix for validation data
+mm.val = sparse.model.matrix(
+   ~ 0 + (voted_2011 + voted_2013 + race) * state +      voted_2011:voted_2013,
+  data = val
+)
+print(dim(mm.val))
+
+# model matrix for tests data
+mm.test = sparse.model.matrix(
+   ~ 0 + (voted_2011 + voted_2013 + race) * state +      voted_2011:voted_2013,
+  data = test
+)
+print(dim(mm.test))
+```
+
+Note that training two separate models to estimate the treatment effect for each user is only one of the many possible ways to do this. This is an active area of research (See the last section in the starter code provided by Prof. Eckles for references).
+
+## Prediction models
+
+We will train two models, one for people under treatment and the other for people under control. In both cases, we use a Lasso regression. Why? Well, they are often a good starting point before trying fancier models. We will use cross-validation to pick the best $\lambda$. 
+
+```{r models}
+
+# ==========================================
+# train models
+# ==========================================
+
+# fit ridge regression for treated voters
+glmnet.treat = cv.glmnet(
+  mm.train[train$treat == 1,],
+  train$voted_2014[train$treat == 1],
+  family = "binomial",
+  alpha = 0,
+  lambda = 2^(-6:5), 
+  nfolds = 3
+)
+
+# fit ridge regression for control voters
+glmnet.ctrl = cv.glmnet(
+  mm.train[train$treat == 0,],
+  train$voted_2014[train$treat == 0],
+  family = "binomial",
+  alpha = 0,
+  nfolds = 3
+)
+
+```
+
+
+Once trained, we will predict *both* the models on the validation and test data sets. The first model will give us the prediction for people as if they were treated and the second one will give us prediction for the same people as if they were in control. 
+
+
+```{r pred_val}
+
+# ==========================================
+# predict on internal validation data
+# ==========================================
+
+val.y1.hat = predict(
+  glmnet.treat, newx = mm.val,
+  type = "response", s = glmnet.treat$lambda.1se,
+)[,1]
+print(summary(val.y1.hat))
+
+val.y0.hat = predict(
+  glmnet.ctrl, newx = mm.val,
+  type = "response", s = glmnet.ctrl$lambda.1se,
+)[,1]
+print(summary(val.y0.hat))
+print(summary(val.y1.hat - val.y0.hat))
+
+```
+
+```{r pred_test}
+
+# ==========================================
+# predict on leader board test data
+# ==========================================
+
+test.y1.hat = predict(
+  glmnet.treat, newx = mm.test,
+  type = "response", s = glmnet.treat$lambda.1se,
+)[,1]
+print(summary(test.y1.hat))
+
+test.y0.hat = predict(
+  glmnet.ctrl, newx = mm.test,
+  type = "response", s = glmnet.ctrl$lambda.1se,
+)[,1]
+print(summary(test.y0.hat))
+
+```
+
+
+## Treatment assignment
+
+With predictions from both the models, we now have to assign people to either treatment or control. One way to do this is to calculate the individual treatment effect for each person by subtracting the predictions from both the models. Further, if this difference is greater than some cut-off, then we assign this person to treatment. In the starter code, we take this cut-off to be the cost of treatment (0.0053). However, this is not the only option. In the example below, we use a more relaxed cut-off. You can experiment with this number.  
+
+In addition to out estimated policy, we also build two benchmark policies which include treating everyone or treating no one. 
+
+
+```{r pred_val_assign}
+
+# ==========================================
+# assignment on validation data
+# ==========================================
+
+val$te = val.y1.hat - val.y0.hat
+val$should_treat = ifelse(val$te - min.effect.to.treat + 0.02 > 0, 1, 0)
+print(table(val$should_treat))
+print(table(val$treat))
+
+# treat everyone
+val$treat_everyone = 1
+
+# treat no-one
+val$treat_none = 0
+
+```
+
+
+Let's inspect what this treatment assignment looks like
+
+```{r val_dist, fig.align='center', fig.height = 8, fig.width = 10}
+
+ggplot(data = val,
+  aes(x = te, fill = factor(should_treat))) +
+  geom_histogram(bins = 100, alpha = 0.7) +
+  geom_vline(xintercept = min.effect.to.treat, color = "blue") +
+  ggtitle("Treatment assignment in validation data") + 
+  xlab("Estimated treatment effect") + ylab("Count") + 
+  scale_fill_manual(values = c("salmon4", "steelblue4"), 
+                    name = "", labels = c("Don't treat", "Treat")) + 
+  theme_minimal()
+
+```
+
+
+## Evaluating policies
+
+Evaluating policies is a bit tricky here. Note that we don't have both treatment and control outcomes for the same person. Hence, we don't know what the same person would have done in both conditions, we can only tell their outcome in the condition they were assigned to. To make progress here, we will use two approaches -- 1) Inverse Propensity Weighting, and 2) Outcome model. 
+
+### Inverse Propensity Weighting (IPW)
+
+In the first approach, we will re-weight the observations by dividing by their propensity of observed treatment. In a simpler case, this would just imply dividing the observations by \texttt{mean(treat)} or \texttt{mean(1 - treat)}. However, here we know that the propensity of treatment varies by state. Hence, we will re-weight the observations using the propensity of treatment in the respective state. We already computed the treatment propensities by state earlier and we will use them here directly. Below is a function that allows us to do that: 
+
+
+```{r ipw}
+
+EvaluateNewPolicy = function(p_treatment, z_obs, z_policy, y, cost = min.effect.to.treat) {
+  out = weighted.mean(
+    y[z_obs == z_policy] - cost * z_policy[z_obs == z_policy],
+    1/ifelse(
+      z_obs[z_obs == z_policy],
+      p_treatment[z_obs == z_policy],
+      1 - p_treatment[z_obs == z_policy]
+    )
+  )
+  round(out*100 , 3)
+}
+
+```
+
+Let's see how different policies perform:
+
+```{r ipw_eval}
+
+# Treating no one
+EvaluateNewPolicy(p_treatment = val$p_treatment, 
+                  z_obs = val$treat, 
+                  z_policy = val$treat_none, 
+                  y = val$voted_2014, 
+                  cost  = min.effect.to.treat)
+
+# Treating everyone
+EvaluateNewPolicy(p_treatment = val$p_treatment, 
+                  z_obs = val$treat, 
+                  z_policy = val$treat_everyone, 
+                  y = val$voted_2014, 
+                  cost = min.effect.to.treat)
+
+# Learned policy
+EvaluateNewPolicy(p_treatment = val$p_treatment, 
+                  z_obs = val$treat, 
+                  z_policy = val$should_treat, 
+                  y = val$voted_2014, 
+                  cost = min.effect.to.treat)
+```
+
+It looks like our estimated policy is doing much better than either of the two benchmark policies. We want this number to be higher. 
+
+One important point to keep in mind is that the IPW estimator can be quite noisy. This is especially the case when treatment/control probabilities are closer to zero. 
+
+
+### Outcome model
+
+In the second approach, we assume we know a close enough approximation of the true data generating model. We use this model to impute the outcomes under treatment/control and then evaluate the policies against the imputed outcomes. The process is similar to what we did for training the models, however, here we need to train directly on the validation data and predict on the validation data as well. 
+
+We use both controlled and control groups, together. 
+```{r outcome_models}
+
+# fit ridge regression for treated voters on validation data 
+outcome.glmnet.treat = cv.glmnet(
+  mm.val[val$treat == 1,],
+  val$voted_2014[val$treat == 1],
+  family = "binomial",
+  alpha = 0,
+  lambda = 2^(-6:5), 
+  nfolds = 3
+)
+
+# fit ridge regression for control voters on validation data
+outcome.glmnet.ctrl = cv.glmnet(
+  mm.val[val$treat == 0,],
+  val$voted_2014[val$treat == 0],
+  family = "binomial",
+  alpha = 0,
+  nfolds = 3
+)
+
+```
+
+
+Generate predictions for both models on the validation data. 
+
+```{r outcome_pred}
+
+val$outcome.y1.hat = predict(
+  outcome.glmnet.treat, newx = mm.val,
+  type = "response", s = outcome.glmnet.treat$lambda.1se,
+)[,1]
+
+val$outcome.y0.hat = predict(
+  outcome.glmnet.ctrl, newx = mm.val,
+  type = "response", s = outcome.glmnet.ctrl$lambda.1se,
+)[,1]
+
+```
+
+Evaluate policies using the outcome model approach on the validation data. 
+
+```{r outcome_eval}
+
+PolicyEval.OutcomeModel = function(z_policy, y_hat_1, y_hat_0, cost = min.effect.to.treat) {
+  y_hat = ifelse(z_policy == 1, y_hat_1 - cost, y_hat_0)
+  mean(y_hat)*100
+}
+
+# Treat everyone
+PolicyEval.OutcomeModel(val$treat_everyone, 
+                        y_hat_1 = val$outcome.y1.hat, 
+                        y_hat_0 = val$outcome.y0.hat, 
+                        cost = min.effect.to.treat)
+
+# Treat no one
+PolicyEval.OutcomeModel(val$treat_none, 
+                        y_hat_1 = val$outcome.y1.hat, 
+                        y_hat_0 = val$outcome.y0.hat, 
+                        cost = 0)
+
+# Estimated policy
+PolicyEval.OutcomeModel(val$should_treat, 
+                        y_hat_1 = val$outcome.y1.hat, 
+                        y_hat_0 = val$outcome.y0.hat, 
+                        cost = min.effect.to.treat)
+
+
+```
+
+Here again we see that our estimated policy performs better than the benchmark policy. Let's use the policy to assign people in the test data to either treatment or control and submit our predictions to Kaggle.
+
+## Preparing data for submission
+
+```{r pred_test_assign}
+
+# ==========================================
+# assignment on test data
+# ==========================================
+
+test$te = test.y1.hat - test.y0.hat
+test$should_treat = ifelse(test$te - min.effect.to.treat  + 0.02 > 0, 1, 0) #here we can change the threshold value
+print(table(test$should_treat))
+```
+
+
+```{r kaggle_submit}
+
+# ==========================================
+# save data for submission
+# ==========================================
+
+out = test %>% 
+  mutate(treat = should_treat) %>% 
+  select(id, treat)
+
+write_csv(out, "C:/Users/lisaa/Documents/Spring 2022/Marketing Analytics/lasso_policy_v12.csv.gz")
+```
+
