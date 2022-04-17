@@ -58,12 +58,16 @@ plot(sg,
 maps::map("state",  add=TRUE, col="black") # add a map of the US states\
 
 #### DEGREE CENTRALITY
+#CENTRALITY - HOW MANY NEIGHBOURS A NODE HAS
 degree.centrality = centr_degree(sg,mode='all')$res
 sg.Senators %>% mutate(degree.centrality) %>% arrange(desc(degree.centrality)) %>% head(n=10) -> top_10_degree
 
+#CLOSENESS - SUM OF THE SHORTEST PATHS TO EVERY OTHER NODE (RECIPROCAL - 1/X) - LARGE NUMBERS ARE CLOSE TO THE CENTER
+# PEOPLE CAN EASILY CAN TO EVERYONE
 clo.centrality = centr_clo(sg,mode='all')$res
 sg.Senators %>% mutate(clo.centrality) %>% arrange(desc(clo.centrality)) %>% head(n=10) -> top_10_clo
 
+#BETWEENNESS - NUMBER OF SHORTEST PATHS IN WHICH A SPECIFIC NODE APPEARS (HOW MANY MOST EFFICIENT WAYS GO THROUGH ME?
 betw.centrality = centr_betw(sg,directed=FALSE)$res
 sg.Senators %>% mutate(betw.centrality) %>% arrange(desc(betw.centrality)) %>% head(n=10) -> top_10_betw
 
