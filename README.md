@@ -11,7 +11,6 @@ How to keep this organized:
 - Random Forest
 - Regularization
 - XGBoost
-- Natural Languange Processing
 - Clusterization
 - Recommendation
 - Python - loops and other useful coding knowledge
