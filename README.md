@@ -14,5 +14,4 @@ How to keep this organized:
 - Natural Languange Processing
 - Clusterization
 - Recommendation
-- NLP
 - Python - loops and other useful coding knowledge
