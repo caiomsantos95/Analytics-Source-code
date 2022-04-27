@@ -8,7 +8,6 @@ How to keep this organized:
 
 # Still Working in progress - what needs to be added
 - Logistic Regression (AUC)
-- Random Forest
 - Regularization
 - XGBoost
 - Clusterization
