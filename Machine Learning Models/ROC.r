@@ -1,3 +1,7 @@
+library(ggplot2)
+library(caret)
+library(ROCR)
+
 ### Full ROC
 
 rocr.pred <- prediction(pred, test$Churn)
