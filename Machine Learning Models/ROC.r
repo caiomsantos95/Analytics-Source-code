@@ -70,28 +70,3 @@ print(ggplot() +
         theme(axis.title=element_text(size=18), axis.text=element_text(size=18), legend.text=element_text(size=18)))
 
 
-#expected profit at 1/3 threshold
-thresh = 1/3
-sum(pred <= thresh & test$Churn == 0)*1000 +
-  sum(pred >= thresh & test$Churn==0)*800 + 
-  sum(pred >= thresh & test$Churn==1)*.5*800
-
-### Loss computation, and sensitivity with threshold
-
-cutoff.info <- data.frame(cutoff = seq(0, 1, .01))
-cutoff.info$payout <- sapply(cutoff.info$cutoff, function(thresh) {
-  
-  sum(pred <= thresh & test$Churn == 0)*1000 +
-    sum(pred >= thresh & test$Churn==0)*800 + 
-    sum(pred >= thresh & test$Churn==1)*.5*800
-})
-
-cutoff.info$baseline_payout <- sum(test$Churn==0)*1000
-print(ggplot(cutoff.info, aes(x=cutoff)) + 
-        geom_line(aes(y=payout, colour='LR'), lwd=1) + 
-        geom_line(aes(y=baseline_payout, colour='B'), lwd=1) + 
-        xlab("Churn threshold") + 
-        ylab("Total profit on test-set") + 
-        scale_color_manual(values = c('LR'='black','B'='red'), name = "Method", labels = c('LR'="Logistic regression", 'B'="Baseline")) +
-        theme(text=element_text(size=18),axis.text.x=element_text(size=18),axis.text.y=element_text(size=18)))
-max(pred)
